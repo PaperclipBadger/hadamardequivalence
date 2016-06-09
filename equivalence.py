@@ -6,14 +6,20 @@ Finds the number of equivalence classes for Hadamard matrices of order n.
 
 """
 # standard library
-import multiprocessing
+import sys
+import multiprocessing as mp
+from ctypes import c_int8, c_uint64, Structure
 from itertools import permutations, combinations, repeat
+from functools import partial
 
 # nonstandard library
 import numpy as np
 
+# project
+import concurrencyutils
 
-# constants
+
+# globals
 _ORDER_4_HADAMARDS = { ( (1,  1,  1,  1)
                        , (1, -1, -1,  1)
                        , (1,  1, -1, -1)
@@ -45,6 +51,8 @@ _ORDER_4_HADAMARDS = { ( (1,  1,  1,  1)
                        , (1, -1, -1,  1)
                        )
                      }
+_representatives = None
+_lock = None
 
 
 # functions
@@ -305,7 +313,8 @@ def find_equivalence_classes(candidate_generator, monomial_generator, order):
     return representatives
 
 def find_equivalence_classes_parallel\
-        (candidate_generator, monomial_generator, order):
+        (candidate_generator, monomial_generator, order, 
+         workers=None, limit=None):
     """Finds representative members of equivalence classes of a given order.
 
     Speeds up the process using multiprocessing.
@@ -318,6 +327,9 @@ def find_equivalence_classes_parallel\
             a generator of candidate hadamard matrices, whose argument is
             the order of the generated matrices.
         order (int): the order to investigate the equivalence classes of.
+        workers (int): the number of workers to use; defaults to one per core.
+        limit (int): limit for the size of the representative list. Defaults
+            to whateber the default limit for SharedStack is.
     
     Returns:
         (List[np.array_like]): a representative member from each equivalence
@@ -326,8 +338,8 @@ def find_equivalence_classes_parallel\
     Examples:
         Give this function a short name and generators
         >>> from functools import partial
-        >>> f = partial(find_equivalence_classes,
-        ...             hadamard_candidates_by_perms_combs,
+        >>> f = partial(find_equivalence_classes_parallel,
+        ...             hadamard_candidates_by_permutations,
         ...             monomials)
         
         One equivalence class for orders 1, 2 and 4
@@ -339,32 +351,118 @@ def find_equivalence_classes_parallel\
         1
 
     """
-    def equivalent_to_representative(h):
-        """Determines whether h is equivalent to a representative.
-        
-        Args:
-            h (np.array_like): a candidate matrix
+    global _representatives
+    global _lock
+    global _dot_counter
+    _representatives = concurrencyutils.SharedStack(c_int8, limit*order**2) if\
+            limit else concurrencyutils.SharedStack(c_int8)
+    _lock = mp.Lock()
+    _dot_counter = mp.Value(c_uint64)
+    poolgen = partial(mp.Pool, workers) if workers else mp.Pool
+    with poolgen(initializer=process_initialiser, 
+            initargs=[_representatives, _lock, _dot_counter]) as pool:
+        pool.map(partial(work, order, monomial_generator), 
+                 candidate_generator(order))
 
-        Returns:
-            (bool): True iff there exist monomial matrices P and Q such that
-            h = P*r*Q for some r in representatives. 
+    print('')
+    m = []
+    for i in range(len(_representatives) // (order * order)):
+        m.append(read_matrix(_representatives, i, order))
+    return m
 
-        """
-        for p in monomial_generator(order):
-            for q in monomial_generator(order):
-                for r in representatives:
-                    if np.array_equal(h, np.dot(p, r).dot(q)):
-                        return True
-        return False
+def push_matrix(stack, array_like):
+    for row in array_like:
+        for entry in row:
+            stack.push(entry)
 
-    representatives = []
-    for h in candidate_generator(order):
-        if not equivalent_to_representative(h):
-            representatives.append(h)
-    return representatives
+def read_matrix(stack, index, order):
+    m = []
+    for i in range(order):
+        m.append([])
+        for j in range(order):
+            m[i].append(stack[index * order * order + i * order + j])
+    return m
+
+def process_initialiser(representatives, lock, dot_counter):
+    """Initialises the globals for a subprocess."""
+    global _representatives
+    global _lock
+    global _dot_counter
+    _representatives = representatives
+    _lock = lock
+    _dot_counter = dot_counter
+
+def equivalent(h, r, order, monomial_generator):
+    """Determines whether h is equivalent to r.
+    
+    Args:
+        h (np.array_like): a matrix
+        r (np.array_like): another matrix
+
+    Returns:
+        (bool): True iff there exist monomial matrices P and Q such that
+        h = P*r*Q.
+
+    """
+    global _representatives
+    global _dot_counter
+    h = np.array(h)
+    r = np.array(r)
+    for p in monomial_generator(order):
+        m = np.dot(p, r)
+        for q in monomial_generator(order):
+            b = False
+            with _dot_counter.get_lock():
+                _dot_counter.value += 1
+                b = _dot_counter.value % (1 << 15) == 0
+            if b:
+                print(".", end='')
+                sys.stdout.flush()
+            if np.array_equal(h, m.dot(q)):
+                return True
+    return False
+
+def work(order, monomial_generator, h):
+    """Determines where h is equivalent to any matrix in _representatives.
+     
+    Args:
+        h (np.array_like): a matrix
+
+    """
+    global _representatives
+    global _lock
+    i = 0
+    while True:
+        with _lock:
+            if i == len(_representatives) // (order * order):
+                push_matrix(_representatives, h)
+                print("!", end='')
+                sys.stdout.flush()
+                return
+        r = read_matrix(_representatives, i, order)
+        if equivalent(h, r, order, monomial_generator):
+            print("!", end='')
+            sys.stdout.flush()
+            return
+        else:
+            i += 1
 
 
 if __name__ == '__main__':
     import doctest
     doctest.testmod(optionflags=doctest.NORMALIZE_WHITESPACE)
+
+    print('represenatives for n = 8:')
+    for m in find_equivalence_classes_parallel(
+            hadamard_candidates_by_perms_combs,
+            monomials,
+            8):
+        print(np.array(m))
+
+    print('represenatives for n = 12:')
+    for m in find_equivalence_classes_parallel(
+            hadamard_candidates_by_perms_combs,
+            monomials,
+            12):
+        print(np.array(m))
 

@@ -1,3 +1,10 @@
+"""
+concurrencyutils.py
+-------------------
+
+Utilities for concurrency.
+
+"""
 from multiprocessing import Array, Value, Condition
 from ctypes import c_uint64, c_byte, pointer, POINTER, Structure
 
