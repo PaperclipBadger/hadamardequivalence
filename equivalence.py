@@ -362,7 +362,7 @@ def find_equivalence_classes(candidate_generator, monomial_generator, order):
 
 def find_equivalence_classes_parallel\
         (candidate_generator, monomial_generator, order, 
-         workers=None, limit=None):
+         workers=None, limit=None, progress_meter=True):
     """Finds representative members of equivalence classes of a given order.
 
     Speeds up the process using multiprocessing.
@@ -409,7 +409,8 @@ def find_equivalence_classes_parallel\
     poolgen = partial(mp.Pool, workers) if workers else mp.Pool
     with poolgen(initializer=process_initialiser, 
             initargs=[_representatives, _lock, _dot_counter]) as pool:
-        pool.map(partial(work, order, monomial_generator), 
+        pool.map(partial(work, order, monomial_generator, 
+                         progress_meter=progress_meter), 
                  candidate_generator(order))
 
     print('')
@@ -477,23 +478,10 @@ def equivalent(h, r, monomial_generator, progress_meter=True):
         r_inv = (1/order) * r.T
         if is_monomial(r_inv.dot(np.linalg.inv(p)).dot(h)):
             return True
-        print_dot(1 << 12)
-
-        #m = np.dot(p, r)
-        #
-        #for q in monomial_generator(order):
-        #    b = False
-        #    with _dot_counter.get_lock():
-        #        _dot_counter.value += 1
-        #        b = _dot_counter.value % (1 << 18) == 0
-        #    if b:
-        #        print(".", end='')
-        #        sys.stdout.flush()
-        #    if np.array_equal(h, m.dot(q)):
-        #        return True
+        if progress_meter: print_dot(1 << 14)
     return False
 
-def work(order, monomial_generator, h):
+def work(order, monomial_generator, h, progress_meter=True):
     """Determines where h is equivalent to any matrix in _representatives.
      
     Args:
@@ -507,13 +495,15 @@ def work(order, monomial_generator, h):
         with _lock:
             if i == len(_representatives) // (order * order):
                 push_matrix(_representatives, h)
-                print("!", end='')
-                sys.stdout.flush()
+                if progress_meter:
+                    print("!", end='')
+                    sys.stdout.flush()
                 return
         r = read_matrix(_representatives, i, order)
-        if equivalent(h, r, monomial_generator):
-            print("!", end='')
-            sys.stdout.flush()
+        if equivalent(h, r, monomial_generator, progress_meter=progress_meter):
+            if progress_meter:
+                print("!", end='')
+                sys.stdout.flush()
             return
         else:
             i += 1
