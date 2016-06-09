@@ -51,8 +51,6 @@ _ORDER_4_HADAMARDS = { ( (1,  1,  1,  1)
                        , (1, -1, -1,  1)
                        )
                      }
-_representatives = None
-_lock = None
 
 
 # functions
@@ -178,6 +176,56 @@ def hadamard_candidates_by_perms_combs(order):
     first_row = tuple(repeat(1, order))
     for rows in combinations(possible_rows, order - 1):
         yield (first_row,) + rows
+
+def is_monomial(matrix):
+    """Checks if a matrix is monomial.
+
+    Args:
+        matrix (np.array_like): a matrix
+
+    Returns:
+        (bool): True iff the matrix is monomial.
+
+    Examples:
+        >>> is_monomial([[1, 0], [0, 1]])
+        True
+        >>> is_monomial([[1, 0], [0, -1]])
+        True
+        >>> is_monomial([[1, 0], [1, 0]])
+        False
+        >>> is_monomial([[1, 0], [-1, 0]])
+        False
+        >>> all(is_monomial(m) for m in monomials(4))
+        True
+        >>> h1 = ((1,  1,  1,  1),
+        ...       (1,  1, -1, -1),
+        ...       (1, -1,  1, -1),
+        ...       (1, -1, -1,  1))
+        >>> h2 = ((1,  1,  1,  1),
+        ...       (1, -1,  1, -1),
+        ...       (1,  1, -1, -1),
+        ...       (1, -1, -1,  1))
+        >>> m = ((1, 0, 0, 0),
+        ...      (0, 0, 1, 0),
+        ...      (0, 1, 0, 0),
+        ...      (0, 0, 0, 1))
+        >>> is_monomial(((1/4)*np.array(h1).T).dot(np.linalg.inv(m)).dot(h2))
+        True
+
+    """
+    indeces = set()
+    for row in matrix:
+        seen = False
+        for i in range(len(row)):
+            if row[i] not in {1, 0, -1}:
+                return False
+            if row[i]:
+                if not seen and i not in indeces:
+                    seen = True
+                    indeces.add(i)
+                else:
+                    return False
+    return True
 
 def monomials(order):
     """Generates the monomial matrices of a given order.
@@ -392,34 +440,57 @@ def process_initialiser(representatives, lock, dot_counter):
     _lock = lock
     _dot_counter = dot_counter
 
-def equivalent(h, r, order, monomial_generator):
+def print_dot(interval):
+    """Prints a dot once every `interval` times this function is called."""
+    global _dot_counter
+    b = False
+    with _dot_counter.get_lock():
+        _dot_counter.value += 1
+        b = _dot_counter.value % interval == 0
+    if b:
+        print(".", end='')
+        sys.stdout.flush()
+
+
+def equivalent(h, r, monomial_generator, progress_meter=True):
     """Determines whether h is equivalent to r.
+
+    h and r must be square matrices of the same order.
     
     Args:
         h (np.array_like): a matrix
         r (np.array_like): another matrix
+        progress_meter (bool): if true, prints a . every once in a while
+            so you know nothing has frozen.
 
     Returns:
         (bool): True iff there exist monomial matrices P and Q such that
         h = P*r*Q.
 
     """
-    global _representatives
-    global _dot_counter
+    order = len(h)
     h = np.array(h)
     r = np.array(r)
     for p in monomial_generator(order):
-        m = np.dot(p, r)
-        for q in monomial_generator(order):
-            b = False
-            with _dot_counter.get_lock():
-                _dot_counter.value += 1
-                b = _dot_counter.value % (1 << 15) == 0
-            if b:
-                print(".", end='')
-                sys.stdout.flush()
-            if np.array_equal(h, m.dot(q)):
-                return True
+        # check if r^-1 * p^-1 * h is monomial
+        # r is hadamard, so r^-1 = 1/order r^T
+        r_inv = (1/order) * r.T
+        if is_monomial(r_inv.dot(np.linalg.inv(p)).dot(h)):
+            return True
+        print_dot(1 << 12)
+
+        #m = np.dot(p, r)
+        #
+        #for q in monomial_generator(order):
+        #    b = False
+        #    with _dot_counter.get_lock():
+        #        _dot_counter.value += 1
+        #        b = _dot_counter.value % (1 << 18) == 0
+        #    if b:
+        #        print(".", end='')
+        #        sys.stdout.flush()
+        #    if np.array_equal(h, m.dot(q)):
+        #        return True
     return False
 
 def work(order, monomial_generator, h):
@@ -440,7 +511,7 @@ def work(order, monomial_generator, h):
                 sys.stdout.flush()
                 return
         r = read_matrix(_representatives, i, order)
-        if equivalent(h, r, order, monomial_generator):
+        if equivalent(h, r, monomial_generator):
             print("!", end='')
             sys.stdout.flush()
             return
@@ -451,18 +522,3 @@ def work(order, monomial_generator, h):
 if __name__ == '__main__':
     import doctest
     doctest.testmod(optionflags=doctest.NORMALIZE_WHITESPACE)
-
-    print('represenatives for n = 8:')
-    for m in find_equivalence_classes_parallel(
-            hadamard_candidates_by_perms_combs,
-            monomials,
-            8):
-        print(np.array(m))
-
-    print('represenatives for n = 12:')
-    for m in find_equivalence_classes_parallel(
-            hadamard_candidates_by_perms_combs,
-            monomials,
-            12):
-        print(np.array(m))
-
