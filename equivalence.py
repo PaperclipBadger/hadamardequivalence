@@ -362,7 +362,7 @@ def find_equivalence_classes(candidate_generator, monomial_generator, order):
 
 def find_equivalence_classes_parallel\
         (candidate_generator, monomial_generator, order, 
-         workers=None, limit=None, progress_meter=True):
+         workers=None, limit=None, progress_meter=1<<14):
     """Finds representative members of equivalence classes of a given order.
 
     Speeds up the process using multiprocessing.
@@ -372,7 +372,7 @@ def find_equivalence_classes_parallel\
             a generator of candidate hadamard matrices, whose argument is
             the order of the generated matrices.
         monomial_generator (Callable[[int], Iterable[np.array_like]]):
-            a generator of candidate hadamard matrices, whose argument is
+            generator of candidate hadamard matrices, whose argument is
             the order of the generated matrices.
         order (int): the order to investigate the equivalence classes of.
         workers (int): the number of workers to use; defaults to one per core.
@@ -388,7 +388,7 @@ def find_equivalence_classes_parallel\
         >>> from functools import partial
         >>> f = partial(find_equivalence_classes_parallel,
         ...             hadamard_candidates_by_permutations,
-        ...             monomials)
+        ...             monomials, progress_meter=False)
         
         One equivalence class for orders 1, 2 and 4
         >>> len(f(1))
@@ -452,8 +452,7 @@ def print_dot(interval):
         print(".", end='')
         sys.stdout.flush()
 
-
-def equivalent(h, r, monomial_generator, progress_meter=True):
+def equivalent(h, r, monomial_generator, progress_meter=1<<14):
     """Determines whether h is equivalent to r.
 
     h and r must be square matrices of the same order.
@@ -478,10 +477,10 @@ def equivalent(h, r, monomial_generator, progress_meter=True):
         r_inv = (1/order) * r.T
         if is_monomial(r_inv.dot(np.linalg.inv(p)).dot(h)):
             return True
-        if progress_meter: print_dot(1 << 14)
+        if progress_meter: print_dot(progress_meter)
     return False
 
-def work(order, monomial_generator, h, progress_meter=True):
+def work(order, monomial_generator, h, progress_meter=1<<14):
     """Determines where h is equivalent to any matrix in _representatives.
      
     Args:
