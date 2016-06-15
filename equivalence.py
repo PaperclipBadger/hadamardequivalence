@@ -72,6 +72,30 @@ def unique_permutations(items):
     """
     return set(permutations(items))
 
+def is_hadamard(matrix):
+    """Checks if a matrix is Hadamard.
+    
+    Args:
+        matrix (np.array_like): A matrix.
+
+    Returns:
+        (bool) True iff the matrix is Hadamard.
+
+    Examples:
+        >>> is_hadamard(((1,),))
+        True
+        >>> is_hadamard(((1,1),(1,1)))
+        False
+        >>> is_hadamard(((1,1),(1,-1)))
+        True
+        >>> all(is_hadamard(m) for m in _ORDER_4_HADAMARDS)
+        True
+
+    """
+    m = np.array(matrix)
+    order = m.shape[0]
+    return np.array_equal(m.dot(m.T), order * np.identity(order))
+
 def hadamard_candidates_by_permutations(order):
     """Generates candidates for normal form Hadmard matrices.
 
@@ -122,7 +146,9 @@ def hadamard_candidates_by_permutations(order):
 
     first_row = tuple(repeat(1, order))
     for rows in permutations(possible_rows, order -1):
-        yield (first_row,) + rows
+        m = (first_row,) + rows
+        if is_hadamard(m):
+            yield(m)
 
 def hadamard_candidates_by_perms_combs(order):
     """Generates candidates for normal form Hadmard matrices.
@@ -160,8 +186,13 @@ def hadamard_candidates_by_perms_combs(order):
         Produces many candidates for 8 and doesn't take an age to do so
         >>> from datetime import datetime, timedelta
         >>> then = datetime.now()
+        >>> flag = True
         >>> for m in c(8):
-        ...     pass
+        ...     flag = flag and is_hadamard(m)
+        ...     if not flag:
+        ...         break
+        >>> flag
+        True
         >>> now = datetime.now()
         >>> then - now < timedelta(seconds=2)
         True
@@ -175,7 +206,9 @@ def hadamard_candidates_by_perms_combs(order):
 
     first_row = tuple(repeat(1, order))
     for rows in combinations(possible_rows, order - 1):
-        yield (first_row,) + rows
+        m = (first_row,) + rows
+        if is_hadamard(m):
+            yield(m)
 
 def is_monomial(matrix):
     """Checks if a matrix is monomial.
